@@ -1,0 +1,71 @@
+## THIS SCRIPT MUST BE RUN AS ADMINISTRATOR TO WORK
+## This script was specifically written to update a Windows HOSTS file, after computing certain local DNS values. Please modify as needed.
+## This script does not yet check if existings VPCE entries are already present in the HOSTS file.
+
+####################      
+##                ##
+## CONFIGURATION  ##
+##                ##
+####################
+
+
+Clear-Host
+
+# Stop Amazon SSM Agent system service
+Stop-Service -name "AmazonSSMAgent" -Verbose
+
+#Clear local DNS client cache
+Clear-DnsClientCache -Verbose
+
+## Initialize variables for both HOSTS file and AWS reserved per-VPC local DNS server values
+$HOSTSfile = "C:\Windows\System32\drivers\etc\hosts"
+$DNSserver = "169.254.169.253"
+
+## Ensure CRLF if entered before appending to HOSTS file
+Add-Content -Value ("`r`n") -Path $HOSTSfile
+
+## Resolve IP addresses for both SSM and EC2MESSAGES VPC endpoint services; append each contatenated "IP + FQDN" object pattern to the end of the local HOSTS file
+Write-Host
+Write-Host Resolving ssm.us-east-1.amazonaws.com...
+$ssm = Resolve-DnsName -name ssm.us-east-1.amazonaws.com -Server $DNSserver | ForEach-Object {Add-Content -Value ($_.ipaddress +'  '+ $_.name) -Path $HOSTSfile}
+Write-Host
+Write-Host Resolving ssm.us-east-1.amazonaws.com...
+$ec2messages = Resolve-DnsName -name ec2messages.us-east-1.amazonaws.com -Server $DNSserver | ForEach-Object {Add-Content -Value ($_.ipaddress +'  '+ $_.name) -Path $HOSTSfile}
+
+## Re-start AWS SSM Agent service
+Write-Host
+Start-Service -name "AmazonSSMAgent" -Verbose
+
+## Display HOSTS file
+cat $HOSTSfile
+Write-Host
+Write-Host
+
+
+
+##################
+##              ##
+## VERIFICATION ##
+##              ##
+##################
+
+
+## Get AWS SSM Agent process object.
+$awsproc = Get-Process -Name amazon-ssm-agent
+
+
+## Get AWS SSM Agent TCP connection statuses.
+$awsstatus = Get-NetTCPConnection -OwningProcess $awsproc.Id -RemotePort 443
+
+## Display AWS SSM Agent TCP connection statuses.
+$awsstatus
+write-host
+
+## Confirm TCP connections show "Established" to the new VPCE service endpoints.
+foreach ($object in $awsstatus){
+    if ($awsstatus.state -ne "Established"){
+        Write-Host This host is not CONNECTED to remote host $object.RemoteAddress on remote port $object.RemotePort. Please confirm your work.
+        } Else {
+        Write-Host This host is now CONNECTED to remote host $object.RemoteAddress on remote port $object.RemotePort. Congratulations!
+    }
+}
